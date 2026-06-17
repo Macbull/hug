@@ -19,6 +19,15 @@ from rich.console import Console
 console = Console()
 
 FINGERTIP_INDICES = np.array([4, 8, 12, 16, 20], dtype=np.int64)
+MIN_WORKSPACE_RADIUS = 1e-6
+TIP_WEIGHT = 0.7
+PALM_WEIGHT = 0.3
+CONTACT_DISTANCE_THRESHOLD_M = 0.15
+REACHABILITY_WEIGHT = 0.5
+CONTACT_QUALITY_WEIGHT = 0.3
+SAFETY_WEIGHT = 0.2
+WRIST_OUT_OF_WORKSPACE_PENALTY = 0.25
+PREGRASP_OUT_OF_WORKSPACE_PENALTY = 0.5
 
 
 def _load_pickle(path: Path) -> dict:
@@ -104,10 +113,10 @@ def _pixel_to_xyz(u: float, v: float, depth: float, K: np.ndarray) -> np.ndarray
 
 def _transform_points(T: np.ndarray, points: np.ndarray) -> np.ndarray:
     pts = np.asarray(points, dtype=np.float64).reshape(-1, 3)
-    homo = np.concatenate(
+    homogeneous_pts = np.concatenate(
         [pts, np.ones((pts.shape[0], 1), dtype=np.float64)], axis=1
     )
-    return (homo @ T.T)[:, :3].astype(np.float32)
+    return (homogeneous_pts @ T.T)[:, :3].astype(np.float32)
 
 
 def _offset_pose(T: np.ndarray, offset_local: np.ndarray) -> np.ndarray:
@@ -137,7 +146,7 @@ def _ranking_scores(
 ) -> dict:
     workspace_center = 0.5 * (workspace_min + workspace_max)
     workspace_radius = max(
-        np.linalg.norm(workspace_max - workspace_min) * 0.5, 1e-6
+        np.linalg.norm(workspace_max - workspace_min) * 0.5, MIN_WORKSPACE_RADIUS
     )
     reach_dist = 0.5 * (
         np.linalg.norm(wrist_base - workspace_center)
@@ -151,17 +160,29 @@ def _ranking_scores(
         tip_dist = np.linalg.norm(tip_centroid - object_point_base)
         palm_dist = np.linalg.norm(palm - object_point_base)
         contact_quality = float(
-            np.clip(1.0 - (0.7 * tip_dist + 0.3 * palm_dist) / 0.15, 0.0, 1.0)
+            np.clip(
+                1.0
+                - (
+                    TIP_WEIGHT * tip_dist + PALM_WEIGHT * palm_dist
+                )
+                / CONTACT_DISTANCE_THRESHOLD_M,
+                0.0,
+                1.0,
+            )
         )
     else:
         contact_quality = 0.0
 
     safety_score = float(np.mean(list(safety.values())))
-    total = 0.5 * reachability + 0.3 * contact_quality + 0.2 * safety_score
+    total = (
+        REACHABILITY_WEIGHT * reachability
+        + CONTACT_QUALITY_WEIGHT * contact_quality
+        + SAFETY_WEIGHT * safety_score
+    )
     if not safety["wrist_in_workspace"]:
-        total *= 0.25
+        total *= WRIST_OUT_OF_WORKSPACE_PENALTY
     if not safety["pregrasp_in_workspace"]:
-        total *= 0.5
+        total *= PREGRASP_OUT_OF_WORKSPACE_PENALTY
     if not safety["camera_frame_valid"]:
         total = 0.0
     return {
@@ -206,12 +227,12 @@ def _build_robot_target(
     object_point_base = None
     if condition_uv is not None and data.get("depth"):
         depth_m = _decode_depth_m(data["depth"])
-        u = float(np.clip(condition_uv[0], 0, width - 1))
-        v = float(np.clip(condition_uv[1], 0, height - 1))
-        ui = int(np.clip(round(u), 0, width - 1))
-        vi = int(np.clip(round(v), 0, height - 1))
+        ui = int(np.clip(round(float(condition_uv[0])), 0, width - 1))
+        vi = int(np.clip(round(float(condition_uv[1])), 0, height - 1))
         d = float(depth_m[vi, ui])
         if d > 0:
+            u = float(ui)
+            v = float(vi)
             object_point_camera = _pixel_to_xyz(u, v, d, K)
             object_point_base = _transform_points(T_base_camera, object_point_camera)[0]
 

@@ -334,6 +334,8 @@ def main(
     workspace_min_np = np.asarray(workspace_min, dtype=np.float32)
     workspace_max_np = np.asarray(workspace_max, dtype=np.float32)
     pregrasp_offset_np = np.asarray(pregrasp_offset, dtype=np.float32)
+    if top_k is not None and top_k < 0:
+        raise ValueError(f"top_k must be >= 0, got {top_k}")
 
     targets = [
         _build_robot_target(
@@ -349,7 +351,7 @@ def main(
     ]
     targets.sort(key=lambda item: item["ranking"]["total"], reverse=True)
     if top_k is not None:
-        targets = targets[: max(top_k, 0)]
+        targets = targets[:top_k]
 
     if output_path is None:
         if len(predictions) == 1 and predictions[0].is_file():

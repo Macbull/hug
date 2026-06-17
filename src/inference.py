@@ -273,6 +273,7 @@ def main(
                 image=orig_data.get("image", b""),
                 depth=orig_data.get("depth", b""),
                 object_mask=point_norm.tobytes(),
+                condition_point=point_uv[i, :2].cpu().numpy().astype(np.float32),
             )
 
             out_path = out_dir / f"{stem}.pkl"

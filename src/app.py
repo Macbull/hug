@@ -289,6 +289,7 @@ def app(
             image=orig.get("image", b""),
             depth=orig.get("depth", b""),
             object_mask=point_norm.tobytes(),
+            condition_point=np.array([u_224, v_224], dtype=np.float32),
         )
         now = time.time()
         timestamp = (

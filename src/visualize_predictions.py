@@ -244,16 +244,24 @@ def visualize(
         else:
             rgb_high = rgb_224.copy()
 
-        # Optional grasp point: app.py / inference.py encode 8 bytes of float32
-        # (u_norm, v_norm) into the pred's object_mask. Prefer the pred file so we
-        # get the real point that was used for prediction; anything else (e.g. a
-        # PNG mask) is ignored here.
+        # Optional grasp point: prefer the explicit 224-space condition_point
+        # stored by app.py / inference.py, else fall back to the legacy 8-byte
+        # object_mask encoding of (u_norm, v_norm).
         point_uv_norm = None
-        point_bytes = (pred_data or {}).get("object_mask", b"") or data.get(
-            "object_mask", b""
-        )
-        if point_bytes and len(point_bytes) == 8:
-            point_uv_norm = np.frombuffer(point_bytes, dtype=np.float32).copy()
+        point_uv = (pred_data or {}).get("condition_point")
+        if point_uv is None:
+            point_uv = data.get("condition_point")
+        if point_uv is not None:
+            point_uv = np.asarray(point_uv, dtype=np.float32).reshape(2)
+            point_uv_norm = np.array(
+                [point_uv[0] / cam_w_small, point_uv[1] / cam_h_small], dtype=np.float32
+            )
+        else:
+            point_bytes = (pred_data or {}).get("object_mask", b"") or data.get(
+                "object_mask", b""
+            )
+            if point_bytes and len(point_bytes) == 8:
+                point_uv_norm = np.frombuffer(point_bytes, dtype=np.float32).copy()
 
         vis["point_uv_norm"] = point_uv_norm
 

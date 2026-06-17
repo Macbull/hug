@@ -88,6 +88,50 @@ python -m hug.app --checkpoint-path "$CKPT" --dataset-path data/custom --save-pr
 
 > **Note**: `--dataset-path` is any folder of `.pkl` samples (searched recursively; the `grasp_pred/` output dir is skipped). With `--save-pred`, each click in `app.py` writes a new `grasp_pred/<name>_<datetime_ms>.pkl`, mirroring the input layout. `visualize_predictions.py` then reads those saved predictions; run it after saving at least one.
 
+## 🤖 Robot integration
+
+HUG is a **grasp-perception** model, not a full robot policy. The predicted hand is a
+human MANO grasp in the **camera frame**. To drive robot hardware, use the saved
+prediction as an intermediate representation and add your own calibration,
+retargeting, motion planning, and execution layers.
+
+This repo now includes a bridge CLI that exports robot-facing targets from saved
+predictions:
+
+```bash
+# 4x4 camera->robot-base calibration (T_base_camera) in .txt/.npy/.json form
+CALIB=calibration/T_base_camera.txt
+
+python -m hug.robot_bridge \
+  --dataset-path data/custom \
+  --calibration-path "$CALIB" \
+  --workspace-min "(-0.8, -0.6, 0.0)" \
+  --workspace-max "(0.8, 0.6, 1.2)" \
+  --table-height 0.0
+```
+
+The export contains, for each saved prediction:
+
+- `T_camera_wrist`
+- `T_base_wrist`
+- `T_base_pregrasp`
+- `landmarks_3d` in camera/base frames
+- `mesh_vertices` in camera/base frames
+- decoded conditioning point and object point (when depth is valid)
+- simple safety flags and ranking scores
+
+This is intended for an offline workflow:
+
+1. prepare RGB-D inputs with `hug.prepare_inputs`
+2. run inference with `hug.app --save-pred` or `hug.inference`
+3. export calibrated targets with `hug.robot_bridge`
+4. retarget MANO landmarks/mesh to your robot hand
+5. plan a pre-grasp and final grasp with your robot arm stack
+6. run your own hardware safety checks before execution
+
+The bridge is deliberately robot-agnostic: it does **not** include Unitree or
+Inspire SDK calls, inverse kinematics, collision checking, or joint retargeting.
+
 ## 📝 Citation
 
 If you find our work useful, please consider citing our paper:
